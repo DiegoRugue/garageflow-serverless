@@ -78,7 +78,7 @@ O workflow de deploy aceita somente `develop` para `homologation` e `main` para 
 | Variable | `TF_OWNER` |
 | Variable | `TF_EXPIRES_ON` |
 
-Antes de habilitar este workflow, o reusable workflow centralizado `deploy-edge.yml` da plataforma deve estar mergeado na branch `main` de `DiegoRugue/garageflow-infra-kubernetes`. Os dois callers usam essa fonte `@main`; o workflow da plataforma seleciona e valida o código do ambiente pelo ref protegido do caller. Neste repositório serverless, `main` e `develop` devem existir e estar protegidas, e `develop` precisa ser criada durante o setup caso ainda não exista. Os Environments reais correspondentes são `production` e `homologation`.
+Antes de habilitar este workflow, o reusable workflow centralizado `deploy-edge.yml` da plataforma deve estar mergeado na branch `main` de `DiegoRugue/garageflow-infra-kubernetes`. Os dois callers usam essa fonte `@main`; nas chamadas entre repositórios, a plataforma valida seu código centralizado em `main` e implanta exatamente o SHA aprovado pelo quality gate. O ref protegido do caller seleciona o Environment e o state. Neste repositório serverless, `main` e `develop` devem existir e estar protegidas, e `develop` precisa ser criada durante o setup caso ainda não exista. Os Environments reais correspondentes são `production` e `homologation`.
 
 O script baixa `contracts/v1/{environment}/platform.json` e `contracts/v2/{environment}/ingress.json` do bucket de estado para `RUNNER_TEMP`, valida os dois contratos e gera os tfvars apenas nesse diretório temporário. O pacote é criado fora do checkout com o SDK `.NET 10.0.301`:
 
