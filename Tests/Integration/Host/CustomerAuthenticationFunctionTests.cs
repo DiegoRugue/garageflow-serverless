@@ -2,9 +2,12 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.Core;
+using GarageFlow.Serverless.Adapters.Infrastructure.Security.Jwt;
 using GarageFlow.Serverless.Application.Customers.Authentication;
 using GarageFlow.Serverless.Application.Customers.Ports;
 using GarageFlow.Serverless.Host;
+using GarageFlow.Serverless.Tests.Integration.TestDoubles;
 using Moq;
 
 namespace GarageFlow.Serverless.Tests.Integration.Host;
@@ -20,17 +23,22 @@ public sealed class CustomerAuthenticationFunctionTests
         var customer = new VerifiedCustomer(Guid.NewGuid(), Guid.NewGuid(), "Customer", true);
         var verifier = new Mock<ICustomerCredentialsVerifier>(MockBehavior.Strict);
         verifier
-            .Setup(candidate => candidate.VerifyAsync("52998224725", "password", CancellationToken.None))
+            .Setup(candidate => candidate.VerifyAsync(
+                "52998224725",
+                "password",
+                It.Is<CancellationToken>(token => token.CanBeCanceled)))
             .ReturnsAsync(customer);
         var tokenIssuer = new Mock<IUserTokenIssuer>(MockBehavior.Strict);
         tokenIssuer
-            .Setup(candidate => candidate.IssueAsync(customer, CancellationToken.None))
+            .Setup(candidate => candidate.IssueAsync(
+                customer,
+                It.Is<CancellationToken>(token => token.CanBeCanceled)))
             .ReturnsAsync("user-token");
         var function = new CustomerAuthenticationFunction(new AuthenticateCustomerHandler(verifier.Object, tokenIssuer.Object));
         var request = CreateRequest(base64Encoded ? Convert.ToBase64String(Encoding.UTF8.GetBytes(body)) : body);
         request.IsBase64Encoded = base64Encoded;
 
-        var response = await function.FunctionHandler(request, null!);
+        var response = await function.FunctionHandler(request, CreateContext(TimeSpan.FromSeconds(10)));
 
         Assert.Equal((int)HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/json", response.Headers["Content-Type"]);
@@ -81,7 +89,7 @@ public sealed class CustomerAuthenticationFunctionTests
 
         var response = await function.FunctionHandler(
             CreateRequest("{\"cpf\":\"11111111111\",\"password\":\"password\"}"),
-            null!);
+            CreateContext(TimeSpan.FromSeconds(10)));
 
         Assert.Equal((int)HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("validation_error", ReadDetail(response));
@@ -146,14 +154,17 @@ public sealed class CustomerAuthenticationFunctionTests
     {
         var verifier = new Mock<ICustomerCredentialsVerifier>(MockBehavior.Strict);
         verifier
-            .Setup(candidate => candidate.VerifyAsync("52998224725", "wrong", CancellationToken.None))
+            .Setup(candidate => candidate.VerifyAsync(
+                "52998224725",
+                "wrong",
+                It.Is<CancellationToken>(token => token.CanBeCanceled)))
             .ReturnsAsync((VerifiedCustomer?)null);
         var tokenIssuer = new Mock<IUserTokenIssuer>(MockBehavior.Strict);
         var function = new CustomerAuthenticationFunction(new AuthenticateCustomerHandler(verifier.Object, tokenIssuer.Object));
 
         var response = await function.FunctionHandler(
             CreateRequest("{\"cpf\":\"52998224725\",\"password\":\"wrong\"}"),
-            null!);
+            CreateContext(TimeSpan.FromSeconds(10)));
 
         Assert.Equal((int)HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("invalid_credentials", ReadDetail(response));
@@ -164,18 +175,77 @@ public sealed class CustomerAuthenticationFunctionTests
     {
         var verifier = new Mock<ICustomerCredentialsVerifier>(MockBehavior.Strict);
         verifier
-            .Setup(candidate => candidate.VerifyAsync("52998224725", "password", CancellationToken.None))
+            .Setup(candidate => candidate.VerifyAsync(
+                "52998224725",
+                "password",
+                It.Is<CancellationToken>(token => token.CanBeCanceled)))
             .ThrowsAsync(new AuthenticationUnavailableException(new InvalidOperationException("sensitive upstream detail")));
         var tokenIssuer = new Mock<IUserTokenIssuer>(MockBehavior.Strict);
         var function = new CustomerAuthenticationFunction(new AuthenticateCustomerHandler(verifier.Object, tokenIssuer.Object));
 
         var response = await function.FunctionHandler(
             CreateRequest("{\"cpf\":\"52998224725\",\"password\":\"password\"}"),
-            null!);
+            CreateContext(TimeSpan.FromSeconds(10)));
 
         Assert.Equal((int)HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal("authentication_unavailable", ReadDetail(response));
         Assert.DoesNotContain("sensitive", response.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HandlerReturnsUnavailableBeforeInvocationDeadlineWhenSecretLookupStalls()
+    {
+        var customer = new VerifiedCustomer(Guid.NewGuid(), Guid.NewGuid(), "Customer", false);
+        var verifierToken = CancellationToken.None;
+        var verifier = new Mock<ICustomerCredentialsVerifier>(MockBehavior.Strict);
+        verifier
+            .Setup(candidate => candidate.VerifyAsync("52998224725", "password", It.IsAny<CancellationToken>()))
+            .Callback<string, string, CancellationToken>((_, _, token) => verifierToken = token)
+            .ReturnsAsync(customer);
+        var secrets = new DelayedSecretValueProvider(
+            new Dictionary<string, string>
+            {
+                ["arn:user"] = new string('u', 64),
+                ["arn:internal"] = new string('i', 64),
+            },
+            TimeSpan.FromSeconds(1));
+        var tokenIssuer = new JwtUserTokenIssuer(
+            secrets,
+            "arn:user",
+            "arn:internal",
+            "GarageFlow",
+            "GarageFlow.Adapters.Api",
+            TimeProvider.System);
+        var function = new CustomerAuthenticationFunction(new AuthenticateCustomerHandler(verifier.Object, tokenIssuer));
+
+        var response = await function.FunctionHandler(
+                CreateRequest("{\"cpf\":\"52998224725\",\"password\":\"password\"}"),
+                CreateContext(TimeSpan.FromMilliseconds(1100)))
+            .WaitAsync(TimeSpan.FromMilliseconds(500));
+
+        Assert.Equal((int)HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("authentication_unavailable", ReadDetail(response));
+        Assert.DoesNotContain("arn:user", response.Body, StringComparison.Ordinal);
+        Assert.True(verifierToken.CanBeCanceled);
+        Assert.Equal(1, secrets.CallCount);
+    }
+
+    [Fact]
+    public async Task HandlerDoesNotInvokeDependenciesWhenResponseMarginConsumesRemainingTime()
+    {
+        var verifier = new Mock<ICustomerCredentialsVerifier>(MockBehavior.Strict);
+        var tokenIssuer = new Mock<IUserTokenIssuer>(MockBehavior.Strict);
+        var function = new CustomerAuthenticationFunction(new AuthenticateCustomerHandler(verifier.Object, tokenIssuer.Object));
+
+        var response = await function.FunctionHandler(
+            CreateRequest("{\"cpf\":\"52998224725\",\"password\":\"password\"}"),
+            CreateContext(TimeSpan.FromMilliseconds(500)));
+
+        Assert.Equal((int)HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("authentication_unavailable", ReadDetail(response));
+        verifier.Verify(
+            candidate => candidate.VerifyAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     private static APIGatewayHttpApiV2ProxyRequest CreateRequest(string? body) => new()
@@ -207,4 +277,7 @@ public sealed class CustomerAuthenticationFunctionTests
         using var json = JsonDocument.Parse(response.Body);
         return json.RootElement.GetProperty("detail").GetString();
     }
+
+    private static ILambdaContext CreateContext(TimeSpan remainingTime) =>
+        Mock.Of<ILambdaContext>(context => context.RemainingTime == remainingTime);
 }

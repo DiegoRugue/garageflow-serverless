@@ -1,9 +1,11 @@
 using System.Reflection;
 using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.Core;
 using GarageFlow.Serverless.Application.Customers.Authentication;
 using GarageFlow.Serverless.Application.Security.Ports;
 using GarageFlow.Serverless.Host;
 using GarageFlow.Serverless.Tests.Integration.TestDoubles;
+using Moq;
 
 namespace GarageFlow.Serverless.Tests.Integration.Host;
 
@@ -49,7 +51,7 @@ public sealed class RuntimeCompositionTests
             },
         };
 
-        var response = await function.FunctionHandler(request, null!);
+        var response = await function.FunctionHandler(request, CreateContext(TimeSpan.FromSeconds(10)));
 
         Assert.Equal(503, response.StatusCode);
         Assert.Contains("authentication_unavailable", response.Body, StringComparison.Ordinal);
@@ -66,7 +68,7 @@ public sealed class RuntimeCompositionTests
             Headers = new Dictionary<string, string> { ["Authorization"] = "Bearer token" },
         };
 
-        var response = await function.FunctionHandler(request, null!);
+        var response = await function.FunctionHandler(request, CreateContext(TimeSpan.FromSeconds(5)));
 
         Assert.False(response.IsAuthorized);
     }
@@ -77,4 +79,7 @@ public sealed class RuntimeCompositionTests
         Assert.NotNull(method);
         return Assert.IsAssignableFrom<object>(method.Invoke(null, null));
     }
+
+    private static ILambdaContext CreateContext(TimeSpan remainingTime) =>
+        Mock.Of<ILambdaContext>(context => context.RemainingTime == remainingTime);
 }

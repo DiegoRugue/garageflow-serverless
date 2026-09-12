@@ -27,8 +27,6 @@ public sealed class RequestAuthorizerFunction
         APIGatewayCustomAuthorizerV2Request request,
         ILambdaContext context)
     {
-        _ = context;
-
         try
         {
             if (!TryGetBearerToken(request?.Headers, out var token))
@@ -36,8 +34,14 @@ public sealed class RequestAuthorizerFunction
                 return Deny();
             }
 
+            using var invocationDeadline = InvocationDeadline.Start(context);
+            if (invocationDeadline is null)
+            {
+                return Deny();
+            }
+
             var isAuthorized = await _tokenValidator.Value
-                .ValidateAsync(token, CancellationToken.None)
+                .ValidateAsync(token, invocationDeadline.Token)
                 .ConfigureAwait(false);
             return new APIGatewayCustomAuthorizerV2SimpleResponse { IsAuthorized = isAuthorized };
         }

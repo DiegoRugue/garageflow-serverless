@@ -34,8 +34,6 @@ public sealed class CustomerAuthenticationFunction
         APIGatewayHttpApiV2ProxyRequest request,
         ILambdaContext context)
     {
-        _ = context;
-
         var path = request?.RawPath ?? request?.RequestContext?.Http?.Path;
         if (!string.Equals(path, AuthenticationPath, StringComparison.Ordinal))
         {
@@ -59,10 +57,16 @@ public sealed class CustomerAuthenticationFunction
                 return Problem(HttpStatusCode.BadRequest, "validation_error");
             }
 
+            using var invocationDeadline = InvocationDeadline.Start(context);
+            if (invocationDeadline is null)
+            {
+                return Problem(HttpStatusCode.ServiceUnavailable, "authentication_unavailable");
+            }
+
             var result = await _handler.Value
                 .HandleAsync(
                     new AuthenticateCustomerRequest(payload.Cpf, payload.Password),
-                    CancellationToken.None)
+                    invocationDeadline.Token)
                 .ConfigureAwait(false);
 
             if (result is null)

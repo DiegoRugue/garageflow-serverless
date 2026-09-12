@@ -41,6 +41,9 @@ public sealed class HttpCustomerCredentialsVerifier : ICustomerCredentialsVerifi
         try
         {
             var serviceToken = await _serviceTokenIssuer.IssueAsync(cancellationToken).ConfigureAwait(false);
+            using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            exchangeCancellation.CancelAfter(_httpClient.Timeout);
+            var exchangeToken = exchangeCancellation.Token;
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 new Uri(_settings.BaseUri, RelativeEndpoint));
@@ -51,7 +54,7 @@ public sealed class HttpCustomerCredentialsVerifier : ICustomerCredentialsVerifi
                 "application/json");
 
             using var response = await _httpClient
-                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, exchangeToken)
                 .ConfigureAwait(false);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
@@ -64,7 +67,7 @@ public sealed class HttpCustomerCredentialsVerifier : ICustomerCredentialsVerifi
                 throw new AuthenticationUnavailableException();
             }
 
-            var body = await ReadBodyAsync(response.Content, cancellationToken).ConfigureAwait(false);
+            var body = await ReadBodyAsync(response.Content, exchangeToken).ConfigureAwait(false);
             var identity = JsonSerializer.Deserialize<CredentialsResponse>(body, SerializerOptions);
             if (identity is null ||
                 identity.UserId is null || identity.UserId == Guid.Empty ||
@@ -83,7 +86,7 @@ public sealed class HttpCustomerCredentialsVerifier : ICustomerCredentialsVerifi
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            throw;
+            throw new OperationCanceledException(cancellationToken);
         }
         catch (AuthenticationUnavailableException)
         {

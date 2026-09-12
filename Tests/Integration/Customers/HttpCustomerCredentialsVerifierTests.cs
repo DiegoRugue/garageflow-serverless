@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using GarageFlow.Serverless.Adapters.Infrastructure.Customers.Authentication;
 using GarageFlow.Serverless.Application.Customers.Authentication;
@@ -130,6 +132,54 @@ public sealed class HttpCustomerCredentialsVerifierTests
             verifier.VerifyAsync("52998224725", "password", cancellation.Token));
     }
 
+    [Fact]
+    public async Task VerifyTimesOutWhileReadingAStalledPartialResponseBody()
+    {
+        const string responseBody = """
+            {"userId":"2ab02472-9f29-4729-92ad-1f03ba994a84","customerId":"6334f73c-b315-4ab0-bb49-65e141a8927f","role":"Customer","mustChangePassword":true}
+            """;
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new PartialThenDelayedStream(
+                Encoding.UTF8.GetBytes(responseBody),
+                firstChunkLength: 24,
+                TimeSpan.FromMilliseconds(400))),
+        };
+        var messageHandler = new RecordingHttpMessageHandler((_, _) => Task.FromResult(response));
+        using var client = new HttpClient(messageHandler) { Timeout = TimeSpan.FromMilliseconds(75) };
+        var verifier = CreateVerifier(client);
+        var elapsed = Stopwatch.StartNew();
+
+        await Assert.ThrowsAsync<AuthenticationUnavailableException>(() =>
+            verifier.VerifyAsync("52998224725", "password", CancellationToken.None));
+
+        Assert.True(elapsed.Elapsed < TimeSpan.FromMilliseconds(300), $"Elapsed: {elapsed.Elapsed}");
+    }
+
+    [Fact]
+    public async Task VerifyPropagatesCallerCancellationWhileReadingAStalledPartialResponseBody()
+    {
+        const string responseBody = """
+            {"userId":"2ab02472-9f29-4729-92ad-1f03ba994a84","customerId":"6334f73c-b315-4ab0-bb49-65e141a8927f","role":"Customer","mustChangePassword":true}
+            """;
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new PartialThenDelayedStream(
+                Encoding.UTF8.GetBytes(responseBody),
+                firstChunkLength: 24,
+                TimeSpan.FromSeconds(1))),
+        };
+        var messageHandler = new RecordingHttpMessageHandler((_, _) => Task.FromResult(response));
+        using var client = new HttpClient(messageHandler) { Timeout = TimeSpan.FromSeconds(5) };
+        var verifier = CreateVerifier(client);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(75));
+
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            verifier.VerifyAsync("52998224725", "password", cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
     [Theory]
     [InlineData("https://internal.example", "http")]
     [InlineData("http://internal.example", "https")]
@@ -150,5 +200,71 @@ public sealed class HttpCustomerCredentialsVerifierTests
             client,
             InternalApiSettings.Create("http://internal.example", "http"),
             serviceTokenIssuer.Object);
+    }
+
+    private sealed class PartialThenDelayedStream : Stream
+    {
+        private readonly byte[] _payload;
+        private readonly int _firstChunkLength;
+        private readonly TimeSpan _delay;
+        private int _position;
+        private bool _delayCompleted;
+
+        public PartialThenDelayedStream(byte[] payload, int firstChunkLength, TimeSpan delay)
+        {
+            _payload = payload;
+            _firstChunkLength = firstChunkLength;
+            _delay = delay;
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => _payload.Length;
+
+        public override long Position
+        {
+            get => _position;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position >= _payload.Length)
+            {
+                return 0;
+            }
+
+            if (_position >= _firstChunkLength && !_delayCompleted)
+            {
+                await Task.Delay(_delay, cancellationToken);
+                _delayCompleted = true;
+            }
+
+            var remainingInChunk = _position < _firstChunkLength
+                ? _firstChunkLength - _position
+                : _payload.Length - _position;
+            var bytesToCopy = Math.Min(buffer.Length, remainingInChunk);
+            _payload.AsMemory(_position, bytesToCopy).CopyTo(buffer);
+            _position += bytesToCopy;
+            return bytesToCopy;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override void Flush()
+        {
+        }
     }
 }
