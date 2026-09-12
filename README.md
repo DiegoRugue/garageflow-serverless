@@ -28,7 +28,7 @@ Somente ARNs dos segredos entram nas variáveis da Lambda. Os valores são busca
 | `JWT_ISSUER` | ambas | emissor do JWT; padrão `GarageFlow` |
 | `JWT_AUDIENCE` | ambas | audiência do JWT; padrão `GarageFlow.Adapters.Api` |
 
-As chaves devem ter pelo menos 32 bytes UTF-8, não podem ser placeholders e devem ser diferentes. O cliente HTTP usa timeout de 5 segundos, não segue redirects e não repete solicitações. Erros de configuração, Secrets Manager, transporte ou identidade inválida falham fechados sem incluir credenciais, tokens ou respostas privadas na resposta HTTP.
+As chaves devem ter pelo menos 32 bytes UTF-8, não podem ser placeholders e devem ser diferentes. A operação HTTP tem limite de 5 segundos incluindo a leitura do corpo, não segue redirects e não repete solicitações. As duas funções propagam um prazo baseado no tempo restante da invocação, reservando 1 segundo para responder; esse prazo também abrange as consultas ao Secrets Manager. Ao esgotar o prazo, a autenticação retorna `503 authentication_unavailable` e o authorizer nega acesso. Erros de configuração, Secrets Manager, transporte ou identidade inválida não incluem credenciais, tokens ou respostas privadas na resposta HTTP.
 
 ## Build, testes e pacote
 
