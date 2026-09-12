@@ -29,7 +29,7 @@ class DeploymentWorkflowPolicyTests(unittest.TestCase):
         self.assertIn(f"group: serverless-${{{{ {protected_expression} }}}}", document)
         self.assertNotIn("group: serverless-${{ inputs.environment", document)
 
-    def test_cross_repository_edge_callers_do_not_inherit_secrets(self):
+    def test_trusted_cross_repository_edge_callers_inherit_deployment_secrets(self):
         document = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
         expectations = {
             "deploy-edge-production": (
@@ -49,7 +49,7 @@ class DeploymentWorkflowPolicyTests(unittest.TestCase):
                 self.assertIn(f"uses: {reusable_workflow}", block)
                 self.assertIn(protected_ref_condition, block)
                 self.assertIn("component: edge", block)
-                self.assertNotRegex(block, r"(?m)^    secrets:")
+                self.assertRegex(block, r"(?m)^    secrets: inherit$")
 
 
 if __name__ == "__main__":
