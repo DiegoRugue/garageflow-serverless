@@ -84,6 +84,8 @@ jobs:
           PY
 
       - name: Run Python tests with branch coverage
+        env:
+          COVERAGE_FILE: ${{ runner.temp }}/garageflow-serverless.coverage
         run: |
           python -m coverage erase
           python -m coverage run --branch --source=scripts --omit="scripts/tests/*" -m unittest discover -s scripts/tests -p "test_*.py"
