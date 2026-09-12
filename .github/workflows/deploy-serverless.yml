@@ -111,6 +111,7 @@ jobs:
     needs: deploy
     if: github.ref == 'refs/heads/main' && needs.deploy.outputs.environment == 'production'
     uses: DiegoRugue/garageflow-infra-kubernetes/.github/workflows/deploy-edge.yml@main
+    secrets: inherit
     with:
       component: edge
 
@@ -118,5 +119,6 @@ jobs:
     needs: deploy
     if: github.ref == 'refs/heads/develop' && needs.deploy.outputs.environment == 'homologation'
     uses: DiegoRugue/garageflow-infra-kubernetes/.github/workflows/deploy-edge.yml@main
+    secrets: inherit
     with:
       component: edge
