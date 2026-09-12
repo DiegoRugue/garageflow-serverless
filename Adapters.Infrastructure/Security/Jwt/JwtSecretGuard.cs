@@ -7,8 +7,12 @@ internal static class JwtSecretGuard
 {
     private static readonly string[] PlaceholderFragments =
     [
+        "set_me",
         "changeme",
+        "replace",
         "placeholder",
+        "<set-me>",
+        "example",
         "replace-me",
         "replace_with",
         "your-secret",

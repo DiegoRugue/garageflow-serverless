@@ -79,6 +79,43 @@ public sealed class JwtTokenAdaptersTests
     }
 
     [Theory]
+    [MemberData(nameof(PlaceholderSecretCases))]
+    public async Task UserIssuerRejectsPlaceholderSecretWithGenericFailure(string secret)
+    {
+        var provider = new StaticSecretValueProvider(new Dictionary<string, string>
+        {
+            [UserArn] = secret,
+            [InternalArn] = InternalSecret,
+        });
+        var issuer = new JwtUserTokenIssuer(provider, UserArn, InternalArn, Issuer, Audience, new ManualTimeProvider(Now));
+        var customer = new VerifiedCustomer(Guid.NewGuid(), Guid.NewGuid(), "Customer", false);
+
+        var exception = await Assert.ThrowsAsync<AuthenticationUnavailableException>(() =>
+            issuer.IssueAsync(customer, CancellationToken.None));
+
+        Assert.Equal("Customer authentication is unavailable.", exception.Message);
+        Assert.DoesNotContain(secret, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(PlaceholderSecretCases))]
+    public async Task InternalIssuerRejectsPlaceholderSecretWithGenericFailure(string secret)
+    {
+        var provider = new StaticSecretValueProvider(new Dictionary<string, string>
+        {
+            [UserArn] = UserSecret,
+            [InternalArn] = secret,
+        });
+        var issuer = new JwtInternalServiceTokenIssuer(provider, InternalArn, UserArn, new ManualTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<AuthenticationUnavailableException>(() =>
+            issuer.IssueAsync(CancellationToken.None));
+
+        Assert.Equal("Customer authentication is unavailable.", exception.Message);
+        Assert.DoesNotContain(secret, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("00000000-0000-0000-0000-000000000000", "6334f73c-b315-4ab0-bb49-65e141a8927f", "Customer")]
     [InlineData("2ab02472-9f29-4729-92ad-1f03ba994a84", "00000000-0000-0000-0000-000000000000", "Customer")]
     [InlineData("2ab02472-9f29-4729-92ad-1f03ba994a84", "6334f73c-b315-4ab0-bb49-65e141a8927f", "Admin")]
@@ -103,6 +140,20 @@ public sealed class JwtTokenAdaptersTests
         var provider = new StaticSecretValueProvider(new Dictionary<string, string> { [UserArn] = secret });
         var validator = new JwtUserTokenValidator(provider, UserArn, Issuer, Audience, new ManualTimeProvider(Now));
         var token = JwtTestTokens.Create(UserSecret, Issuer, Audience, Now,
+            [new Claim(JwtRegisteredClaimNames.Sub, Guid.NewGuid().ToString())]);
+
+        var valid = await validator.ValidateAsync(token, CancellationToken.None);
+
+        Assert.False(valid);
+    }
+
+    [Theory]
+    [MemberData(nameof(PlaceholderSecretCases))]
+    public async Task ValidatorRejectsTokenSignedWithPlaceholderSecret(string secret)
+    {
+        var provider = new StaticSecretValueProvider(new Dictionary<string, string> { [UserArn] = secret });
+        var validator = new JwtUserTokenValidator(provider, UserArn, Issuer, Audience, new ManualTimeProvider(Now));
+        var token = JwtTestTokens.Create(secret, Issuer, Audience, Now,
             [new Claim(JwtRegisteredClaimNames.Sub, Guid.NewGuid().ToString())]);
 
         var valid = await validator.ValidateAsync(token, CancellationToken.None);
@@ -168,6 +219,16 @@ public sealed class JwtTokenAdaptersTests
             JwtTestTokens.Create(UserSecret, Issuer, Audience, Now, sub, algorithm: SecurityAlgorithms.None),
         };
     }
+
+    public static TheoryData<string> PlaceholderSecretCases() => new()
+    {
+        "__SET_ME_JWT_SECRET________________",
+        "replace_this_secret_with_real_value",
+        "PREFIX_CHANGEme_SECRET_VALUE_1234567890",
+        "PREFIX_PLACEHOLDER_SECRET_VALUE_1234567890",
+        "PREFIX_<SeT-Me>_SECRET_VALUE_1234567890",
+        "PREFIX_EXAMPLE_SECRET_VALUE_1234567890",
+    };
 
     private static StaticSecretValueProvider CreateProvider() => new(new Dictionary<string, string>
     {
