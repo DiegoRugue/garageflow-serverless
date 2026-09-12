@@ -175,6 +175,41 @@ run "rejects_cross_account_role" {
   expect_failures = [terraform_data.deployment_guard]
 }
 
+run "plans_http_explicit_default_port" {
+  command = plan
+  variables {
+    ingress_contract = {
+      listenerArn                   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/garageflow/0123456789abcdef/0123456789abcdef"
+      internalApiBaseUrl             = "http://internal-garageflow-123.us-east-1.elb.amazonaws.com:80/"
+      transport                     = "http"
+      authenticationSecurityGroupId = "sg-1123456789abcdef0"
+      vpcLinkSecurityGroupId         = "sg-2123456789abcdef0"
+    }
+  }
+  assert {
+    condition     = local.ingress_hostname == "internal-garageflow-123.us-east-1.elb.amazonaws.com"
+    error_message = "HTTP default port must not become part of the ALB hostname."
+  }
+}
+
+run "plans_https_explicit_default_port" {
+  command = plan
+  variables {
+    ingress_contract = {
+      listenerArn                   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/garageflow/0123456789abcdef/0123456789abcdef"
+      internalApiBaseUrl             = "https://api.internal.garageflow.example:443/"
+      transport                     = "https"
+      authenticationSecurityGroupId = "sg-1123456789abcdef0"
+      vpcLinkSecurityGroupId         = "sg-2123456789abcdef0"
+      tlsServerName                 = "api.internal.garageflow.example"
+    }
+  }
+  assert {
+    condition     = local.ingress_hostname == "api.internal.garageflow.example"
+    error_message = "HTTPS default port must not become part of the TLS hostname."
+  }
+}
+
 run "rejects_resources_outside_platform_vpc" {
   command = plan
 

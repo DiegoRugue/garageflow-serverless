@@ -1,10 +1,9 @@
 locals {
   customer_authentication_name = "garageflow-${var.environment}-customer-authentication"
   request_authorizer_name      = "garageflow-${var.environment}-request-authorizer"
-  ingress_hostname = trimsuffix(
-    replace(lower(var.ingress_contract.internalApiBaseUrl), "/^https?:\\/\\//", ""),
-    "/"
-  )
+  ingress_hostname = split(":", trimsuffix(
+    replace(lower(var.ingress_contract.internalApiBaseUrl), "/^https?:\\/\\//", ""), "/"
+  ))[0]
   protected_arns = [
     var.platform_contract.apiGatewayExecutionArn,
     var.platform_contract.jwtSecretArn,
