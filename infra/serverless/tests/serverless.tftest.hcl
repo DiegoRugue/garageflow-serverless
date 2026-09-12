@@ -180,10 +180,10 @@ run "plans_http_explicit_default_port" {
   variables {
     ingress_contract = {
       listenerArn                   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/garageflow/0123456789abcdef/0123456789abcdef"
-      internalApiBaseUrl             = "http://internal-garageflow-123.us-east-1.elb.amazonaws.com:80/"
+      internalApiBaseUrl            = "http://internal-garageflow-123.us-east-1.elb.amazonaws.com:80/"
       transport                     = "http"
       authenticationSecurityGroupId = "sg-1123456789abcdef0"
-      vpcLinkSecurityGroupId         = "sg-2123456789abcdef0"
+      vpcLinkSecurityGroupId        = "sg-2123456789abcdef0"
     }
   }
   assert {
@@ -197,10 +197,10 @@ run "plans_https_explicit_default_port" {
   variables {
     ingress_contract = {
       listenerArn                   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/garageflow/0123456789abcdef/0123456789abcdef"
-      internalApiBaseUrl             = "https://api.internal.garageflow.example:443/"
+      internalApiBaseUrl            = "https://api.internal.garageflow.example:443/"
       transport                     = "https"
       authenticationSecurityGroupId = "sg-1123456789abcdef0"
-      vpcLinkSecurityGroupId         = "sg-2123456789abcdef0"
+      vpcLinkSecurityGroupId        = "sg-2123456789abcdef0"
       tlsServerName                 = "api.internal.garageflow.example"
     }
   }
