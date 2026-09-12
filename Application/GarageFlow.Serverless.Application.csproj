@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\GarageFlow.Serverless.Domain.csproj" />
+  </ItemGroup>
+</Project>

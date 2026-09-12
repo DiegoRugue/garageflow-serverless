@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/DiegoRugue/GarageFlow/main/contracts/infra-contract-v2.schema.json",
+  "title": "GarageFlow Private Ingress Metadata Contract v2",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "environment",
+    "producer",
+    "sourceCommit",
+    "publishedAt",
+    "outputs"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0"
+    },
+    "environment": {
+      "enum": [
+        "homologation",
+        "production"
+      ]
+    },
+    "producer": {
+      "const": "ingress"
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "outputs": {
+      "$ref": "#/$defs/ingressOutputs"
+    }
+  },
+  "propertyNames": {
+    "$ref": "#/$defs/safeFieldName"
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/publicMetadata"
+  },
+  "$defs": {
+    "safeFieldName": {
+      "allOf": [
+        {
+          "not": {
+            "pattern": "[Pp][^A-Za-z0-9]*[Aa][^A-Za-z0-9]*[Ss][^A-Za-z0-9]*[Ss][^A-Za-z0-9]*(?:[Ww][^A-Za-z0-9]*[Oo][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*[Dd]|[Pp][^A-Za-z0-9]*[Hh][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*[Aa][^A-Za-z0-9]*[Ss][^A-Za-z0-9]*[Ee]|[Ww][^A-Za-z0-9]*[Dd])"
+          }
+        },
+        {
+          "not": {
+            "pattern": "[Tt][^A-Za-z0-9]*[Oo][^A-Za-z0-9]*[Kk][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Nn]"
+          }
+        },
+        {
+          "not": {
+            "pattern": "[Ss][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Cc][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Tt]"
+          }
+        },
+        {
+          "not": {
+            "pattern": "[Cc][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Dd][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Nn][^A-Za-z0-9]*[Tt][^A-Za-z0-9]*[Ii][^A-Za-z0-9]*[Aa][^A-Za-z0-9]*[Ll]"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(?:[Pp][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*[Ii][^A-Za-z0-9]*[Vv][^A-Za-z0-9]*[Aa][^A-Za-z0-9]*[Tt][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*(?:[Kk][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Yy]|[Pp][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Mm])|[Pp][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Mm][^A-Za-z0-9]*[Pp][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*[Ii][^A-Za-z0-9]*[Vv][^A-Za-z0-9]*[Aa][^A-Za-z0-9]*[Tt][^A-Za-z0-9]*[Ee])"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(?:[Aa][^A-Za-z0-9]*[Pp][^A-Za-z0-9]*[Ii]|[Aa][^A-Za-z0-9]*[Cc][^A-Za-z0-9]*[Cc][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Ss][^A-Za-z0-9]*[Ss])[^A-Za-z0-9]*[Kk][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Yy]"
+          }
+        },
+        {
+          "not": {
+            "pattern": "[Hh][^A-Za-z0-9]*[Aa][^A-Za-z0-9]*[Ss][^A-Za-z0-9]*[Hh]"
+          }
+        }
+      ]
+    },
+    "publicMetadata": {
+      "anyOf": [
+        {
+          "type": [
+            "null",
+            "boolean",
+            "number",
+            "string"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/publicMetadata"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/safeFieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/publicMetadata"
+          }
+        }
+      ]
+    },
+    "nonEmptyCleanString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "arn": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/nonEmptyCleanString"
+        },
+        {
+          "pattern": "^arn:aws(?:-us-gov|-cn)?:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:\\S+$"
+        }
+      ]
+    },
+    "ingressOutputs": {
+      "type": "object",
+      "required": [
+        "listenerArn",
+        "internalApiBaseUrl",
+        "transport",
+        "authenticationSecurityGroupId",
+        "vpcLinkSecurityGroupId"
+      ],
+      "properties": {
+        "listenerArn": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/arn"
+            },
+            {
+              "pattern": "^arn:aws(?:-us-gov|-cn)?:elasticloadbalancing:[a-z0-9-]+:[0-9]{12}:listener/\\S+$"
+            }
+          ]
+        },
+        "internalApiBaseUrl": {
+          "$ref": "#/$defs/nonEmptyCleanString",
+          "format": "uri"
+        },
+        "tlsServerName": {
+          "$ref": "#/$defs/nonEmptyCleanString",
+          "maxLength": 253,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+        },
+        "transport": {
+          "enum": [
+            "http",
+            "https"
+          ]
+        },
+        "authenticationSecurityGroupId": {
+          "$ref": "#/$defs/nonEmptyCleanString",
+          "pattern": "^sg-[0-9a-f]{8}(?:[0-9a-f]{9})?$"
+        },
+        "vpcLinkSecurityGroupId": {
+          "$ref": "#/$defs/nonEmptyCleanString",
+          "pattern": "^sg-[0-9a-f]{8}(?:[0-9a-f]{9})?$"
+        }
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/safeFieldName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/publicMetadata"
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "transport": {
+                "const": "http"
+              }
+            },
+            "required": [
+              "transport"
+            ]
+          },
+          "then": {
+            "properties": {
+              "internalApiBaseUrl": {
+                "pattern": "^[Hh][Tt][Tt][Pp]://(?=[^:/?#]{1,253}(?:[:/]|$))[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+(?::80)?/?$"
+              }
+            },
+            "not": {
+              "required": [
+                "tlsServerName"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transport": {
+                "const": "https"
+              }
+            },
+            "required": [
+              "transport"
+            ]
+          },
+          "then": {
+            "properties": {
+              "internalApiBaseUrl": {
+                "pattern": "^[Hh][Tt][Tt][Pp][Ss]://(?=[^:/?#]{1,253}(?:[:/]|$))[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+(?::443)?/?$"
+              }
+            },
+            "required": [
+              "tlsServerName"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

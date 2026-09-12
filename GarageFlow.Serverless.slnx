@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/Domain/">
+    <Project Path="Domain/GarageFlow.Serverless.Domain.csproj" />
+  </Folder>
+  <Folder Name="/Application/">
+    <Project Path="Application/GarageFlow.Serverless.Application.csproj" />
+  </Folder>
+  <Folder Name="/Adapters.Infrastructure/">
+    <Project Path="Adapters.Infrastructure/GarageFlow.Serverless.Adapters.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/Host/">
+    <Project Path="Host/GarageFlow.Serverless.Host.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Unit/">
+    <Project Path="Tests/Unit/GarageFlow.Serverless.Tests.Unit.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Integration/">
+    <Project Path="Tests/Integration/GarageFlow.Serverless.Tests.Integration.csproj" />
+  </Folder>
+</Solution>
