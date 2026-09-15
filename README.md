@@ -1,8 +1,109 @@
-# GarageFlow Serverless
+# GarageFlow — Serverless
 
-Funções de autenticação de clientes por CPF e autorização do API Gateway para o Tech Challenge Fase 3. A aplicação GarageFlow mantém as regras de negócio e a verificação de credenciais; a função de autenticação valida a entrada, consulta a API privada e emite o JWT do cliente.
+Este README concentra a arquitetura, o contrato HTTP, as sequências e a operação das funções de autenticação por CPF e autorização do GarageFlow. O projeto entrega código .NET 10, pacote ZIP, Terraform das Lambdas, aliases e permissões de invocação. Regras de cadastro, senha, situação do cliente e propriedade da OS permanecem na aplicação.
 
-Este repositório tem ciclo de build e deploy próprio. Metadados de infraestrutura são consumidos por contratos versionados; não há referência de projeto para outro checkout.
+## Sumário
+
+- [Arquitetura](#arquitetura)
+- [Sequência de autenticação](#sequência-de-autenticação)
+- [Autorização das APIs](#autorização-das-apis)
+- [Contrato HTTP](#contrato-http)
+- [Runtime .NET](#runtime-net)
+- [Configuração do runtime](#configuração-do-runtime)
+- [Build, testes e pacote](#build-testes-e-pacote)
+- [Infraestrutura serverless](#infraestrutura-serverless)
+- [Deploy](#deploy)
+- [Artefatos e decisões](#artefatos-e-decisões)
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    Customer[Cliente: CPF e senha] -->|HTTPS| Gateway[API Gateway da plataforma]
+    Gateway -->|rota de login| Auth[Lambda: autenticação]
+    Gateway -->|rotas protegidas| Authorizer[Lambda: authorizer]
+    Auth -->|HTTP privado e JWT de serviço| ALB[ALB interno da plataforma]
+    ALB --> Api[API no EKS]
+    Api --> DB[(PostgreSQL)]
+    Auth -->|endpoint privado| Secrets[Secrets Manager]
+    Authorizer --> Secrets
+    Authorizer -->|permitir ou negar| Gateway
+```
+
+A autenticação está em subnets privadas da VPC; o authorizer fica fora da VPC. A [plataforma](https://github.com/DiegoRugue/garageflow-infra-kubernetes#readme) é dona do Gateway, rotas, VPC Link, ALB e segredos comuns. A [aplicação](https://github.com/DiegoRugue/GarageFlow#readme) é dona das regras e verificação interna. O [banco](https://github.com/DiegoRugue/garageflow-infra-database#readme) não é acessado por nenhuma Lambda.
+
+O transporte público usa HTTPS gerenciado do Gateway; o trecho Lambda → ALB → API usa HTTP na VPC, sem criptografia de transporte interna. Security groups e JWT de serviço restringem o acesso. A solução Academy não exige domínio próprio/ACM; isso não equivale a TLS ponta a ponta.
+
+## Sequência de autenticação
+
+```mermaid
+sequenceDiagram
+    actor Customer as Cliente
+    participant Gateway as API Gateway
+    participant Login as Lambda autenticação
+    participant Secrets as Secrets Manager
+    participant Api as API privada via ALB
+    participant Db as PostgreSQL
+    Customer->>Gateway: POST /auth/customers/token com CPF e senha
+    Gateway->>Login: Evento HTTP API 2.0
+    Login->>Login: Validar e normalizar CPF
+    alt Entrada inválida
+        Login-->>Gateway: 400
+    else Entrada válida
+        Login->>Secrets: Obter chaves por ARN com cache limitado
+        Login->>Api: Verificar credenciais com JWT de serviço
+        Api->>Db: Consultar cliente, status e usuário do portal
+        Api->>Api: Verificar senha e situação
+        alt Cliente válido e ativo
+            Api-->>Login: userId, customerId, role, mustChangePassword
+            Login->>Login: Emitir JWT de usuário
+            Login-->>Gateway: 200 com token e expiração
+        else Credenciais inválidas ou suspensão
+            Api-->>Login: 401 genérico
+            Login-->>Gateway: 401 invalid_credentials
+        else Dependência indisponível
+            Login-->>Gateway: 503 authentication_unavailable
+        end
+    end
+    Gateway-->>Customer: Resposta sem cache
+```
+
+O login administrativo continua em `POST /auth/login` na aplicação. CPF autentica apenas o cliente vinculado ao portal; a API mantém hashing, status e políticas. Segredos, CPF, senha e tokens não devem aparecer nos logs. O [RFC de identidade](https://github.com/DiegoRugue/GarageFlow/blob/main/docs/architecture/rfcs/0001-phase-3-platform-and-identity.md) especifica as identidades distintas dos JWTs.
+
+## Autorização das APIs
+
+```mermaid
+sequenceDiagram
+    actor Client as Consumidor
+    participant Gateway as API Gateway
+    participant Auth as Lambda authorizer
+    participant Api as API no EKS
+    Client->>Gateway: Requisição com Bearer JWT
+    Gateway->>Auth: REQUEST 2.0
+    Auth->>Auth: Validar JWT de usuário
+    Auth-->>Gateway: isAuthorized
+    alt Acesso negado
+        Gateway-->>Client: Requisição bloqueada
+    else Token válido
+        Gateway->>Api: Rota via VPC Link e ALB
+        Api->>Api: Revalidar JWT, perfil, status e propriedade
+        Api-->>Client: Resposta via Gateway
+    end
+```
+
+O Gateway não mantém cache da decisão do authorizer (`TTL=0`). A Lambda verifica identidade do token; a API decide acesso ao recurso. Token válido de cliente não permite gestão administrativa ou leitura da OS de outra pessoa. O webhook usa HMAC na API, conforme o catálogo explícito de rotas da plataforma.
+
+## Contrato HTTP
+
+`POST /auth/customers/token`, `Content-Type: application/json`:
+
+```json
+{"cpf":"<CPF do cliente>","password":"<senha do portal>"}
+```
+
+Os valores acima são marcadores; use um cliente de teste cadastrado. A resposta de sucesso contém `token`, `mustChangePassword`, `tokenType` e `expiresIn`, com `Cache-Control: no-store`. `400` indica entrada inválida; `401` não distingue inexistência, suspensão ou senha incorreta; `503` indica indisponibilidade da autenticação. O authorizer é uma integração interna do Gateway e não um endpoint público para login.
+
+A URL base HTTPS é descoberta pelo [contrato da plataforma](https://github.com/DiegoRugue/garageflow-infra-kubernetes#acesso-e-documentação-das-apis). Esta rota Lambda não integra o OpenAPI gerado pelo Host da aplicação: use este contrato no Postman. As APIs de negócio possuem [OpenAPI/Scalar local](https://github.com/DiegoRugue/GarageFlow#execução-e-documentação-da-api); `/internal/*` e documentação não são expostos pelo Gateway.
 
 ## Runtime .NET
 
@@ -62,9 +163,9 @@ terraform -chdir=infra/serverless validate
 terraform -chdir=infra/serverless test -no-color
 ```
 
-## Deploy protegido
+## Deploy
 
-O workflow de deploy aceita somente `develop` para `homologation` e `main` para `production`, sempre em `us-east-1`. Pushes nessas branches passam primeiro pelo quality gate. A execução manual exige o ambiente correspondente à branch selecionada e a confirmação do SHA completo. Os dois GitHub Environments protegidos deste repositório, `homologation` e `production`, devem fornecer:
+O workflow de deploy aceita somente `develop` para `homologation` e `main` para `production`, sempre em `us-east-1`. Pushes nessas branches passam primeiro pelo quality gate. A execução manual exige o ambiente correspondente à branch selecionada e a confirmação do SHA completo. Configure os GitHub Environments `homologation` e `production` e suas regras de proteção. A existência do workflow não cria branches, Environments nem proteção. Cada Environment deve fornecer:
 
 | Tipo | Nome |
 | --- | --- |
@@ -78,7 +179,7 @@ O workflow de deploy aceita somente `develop` para `homologation` e `main` para 
 | Variable | `TF_OWNER` |
 | Variable | `TF_EXPIRES_ON` |
 
-Antes de habilitar este workflow, o reusable workflow centralizado `deploy-edge.yml` da plataforma deve estar mergeado na branch `main` de `DiegoRugue/garageflow-infra-kubernetes`. Os dois callers usam essa fonte `@main`; nas chamadas entre repositórios, a plataforma valida seu código centralizado em `main` e implanta exatamente o SHA aprovado pelo quality gate. O ref protegido do caller seleciona o Environment e o state. Neste repositório serverless, `main` e `develop` devem existir e estar protegidas, e `develop` precisa ser criada durante o setup caso ainda não exista. Os Environments reais correspondentes são `production` e `homologation`.
+Antes de habilitar este workflow, o reusable workflow centralizado `deploy-edge.yml` da plataforma deve estar mergeado na branch `main` de `DiegoRugue/garageflow-infra-kubernetes`. Os dois callers usam essa fonte `@main`; nas chamadas entre repositórios, a plataforma valida seu código centralizado em `main` e implanta exatamente o SHA aprovado pelo quality gate. O ref protegido do caller seleciona o Environment e o state. Neste repositório serverless, `main` e `develop` devem existir e estar protegidas, e `develop` precisa ser criada durante o setup caso ainda não exista. Os nomes esperados de Environment são `production` e `homologation`.
 
 O script baixa `contracts/v1/{environment}/platform.json` e `contracts/v2/{environment}/ingress.json` do bucket de estado para `RUNNER_TEMP`, valida os dois contratos e gera os tfvars apenas nesse diretório temporário. O pacote é criado fora do checkout com o SDK `.NET 10.0.301`:
 
@@ -91,3 +192,19 @@ dotnet publish Host/GarageFlow.Serverless.Host.csproj \
 ```
 
 O estado usa a chave `phase3/{environment}/serverless.tfstate`, criptografia e lock nativo do S3. O apply consome exatamente o plano salvo. Após as duas funções ficarem ativas, o script publica primeiro a revisão imutável `contracts/v1/{environment}/serverless/revisions/{sha}/{run-id}-{run-attempt}.json` com `If-None-Match: *` e depois atualiza `contracts/v1/{environment}/serverless.json`. Assim, uma recuperação pode repetir o mesmo commit em outra execução sem colidir com a revisão anterior. Só então os dois callers protegidos chamam o deploy reutilizável do edge da plataforma confiável, sob o mesmo proprietário, com `secrets: inherit`. Essa herança explícita permite resolver os secrets de deployment na chamada entre repositórios. O workflow centralizado usa a fonte `@main`, declara o mesmo Environment protegido selecionado pelo ref do caller e lê as credenciais e variáveis configuradas neste repositório, garantindo que a borda consuma aliases já publicados.
+
+## Artefatos e decisões
+
+| Artefato | Responsabilidade |
+| --- | --- |
+| [Host](Host) | Handlers HTTP API/authorizer e composição |
+| [Application](Application) | Casos de uso e portas |
+| [Domain](Domain) | Validação do CPF |
+| [Adapters.Infrastructure](Adapters.Infrastructure) | HTTP privado, JWT e Secrets Manager |
+| [Terraform](infra/serverless) | Funções, versões, aliases e permissões |
+| [Deploy](.github/workflows/deploy-serverless.yml) | Pacote ZIP, contratos e chamada do edge |
+| [Quality gate](.github/workflows/quality-gate.yml) | Build, testes, cobertura e IaC |
+| [Execuções](https://github.com/DiegoRugue/garageflow-serverless/actions) | CI/CD deste repositório |
+| [ADR de separação](https://github.com/DiegoRugue/GarageFlow/blob/main/docs/architecture/adrs/0001-four-repositories-on-aws-academy.md) | Propriedade dos quatro projetos |
+
+O pacote usa runtime gerenciada e ZIP; Dockerfile não se aplica a este deploy. As funções não são instrumentadas no New Relic. Os dashboards da plataforma medem a API e o Kubernetes; não representam falhas da Lambda que não chegaram à API. A disponibilidade do endpoint depende da sessão Academy e da cadeia de deploy, não de uma URL fixa no README.
