@@ -17,18 +17,9 @@ Este README concentra a arquitetura, o contrato HTTP, as sequências e a operaç
 
 ## Arquitetura
 
-```mermaid
-flowchart LR
-    Customer[Cliente: CPF e senha] -->|HTTPS| Gateway[API Gateway da plataforma]
-    Gateway -->|rota de login| Auth[Lambda: autenticação]
-    Gateway -->|rotas protegidas| Authorizer[Lambda: authorizer]
-    Auth -->|HTTP privado e JWT de serviço| ALB[ALB interno da plataforma]
-    ALB --> Api[API no EKS]
-    Api --> DB[(PostgreSQL)]
-    Auth -->|endpoint privado| Secrets[Secrets Manager]
-    Authorizer --> Secrets
-    Authorizer -->|permitir ou negar| Gateway
-```
+![Componentes de autenticação serverless](docs/diagrams/serverless-components.png)
+
+[Fonte editável do diagrama](docs/diagrams/serverless-components.mmd).
 
 A autenticação está em subnets privadas da VPC; o authorizer fica fora da VPC. A [plataforma](https://github.com/DiegoRugue/garageflow-infra-kubernetes#readme) é dona do Gateway, rotas, VPC Link, ALB e segredos comuns. A [aplicação](https://github.com/DiegoRugue/GarageFlow#readme) é dona das regras e verificação interna. O [banco](https://github.com/DiegoRugue/garageflow-infra-database#readme) não é acessado por nenhuma Lambda.
 
@@ -36,60 +27,17 @@ O transporte público usa HTTPS gerenciado do Gateway; o trecho Lambda → ALB �
 
 ## Sequência de autenticação
 
-```mermaid
-sequenceDiagram
-    actor Customer as Cliente
-    participant Gateway as API Gateway
-    participant Login as Lambda autenticação
-    participant Secrets as Secrets Manager
-    participant Api as API privada via ALB
-    participant Db as PostgreSQL
-    Customer->>Gateway: POST /auth/customers/token com CPF e senha
-    Gateway->>Login: Evento HTTP API 2.0
-    Login->>Login: Validar e normalizar CPF
-    alt Entrada inválida
-        Login-->>Gateway: 400
-    else Entrada válida
-        Login->>Secrets: Obter chaves por ARN com cache limitado
-        Login->>Api: Verificar credenciais com JWT de serviço
-        Api->>Db: Consultar cliente, status e usuário do portal
-        Api->>Api: Verificar senha e situação
-        alt Cliente válido e ativo
-            Api-->>Login: userId, customerId, role, mustChangePassword
-            Login->>Login: Emitir JWT de usuário
-            Login-->>Gateway: 200 com token e expiração
-        else Credenciais inválidas ou suspensão
-            Api-->>Login: 401 genérico
-            Login-->>Gateway: 401 invalid_credentials
-        else Dependência indisponível
-            Login-->>Gateway: 503 authentication_unavailable
-        end
-    end
-    Gateway-->>Customer: Resposta sem cache
-```
+![Sequência de autenticação do cliente por CPF](docs/diagrams/customer-authentication.png)
+
+[Fonte editável do diagrama](docs/diagrams/customer-authentication.mmd).
 
 O login administrativo continua em `POST /auth/login` na aplicação. CPF autentica apenas o cliente vinculado ao portal; a API mantém hashing, status e políticas. Segredos, CPF, senha e tokens não devem aparecer nos logs. O [RFC de identidade](https://github.com/DiegoRugue/GarageFlow/blob/main/docs/architecture/rfcs/0001-phase-3-platform-and-identity.md) especifica as identidades distintas dos JWTs.
 
 ## Autorização das APIs
 
-```mermaid
-sequenceDiagram
-    actor Client as Consumidor
-    participant Gateway as API Gateway
-    participant Auth as Lambda authorizer
-    participant Api as API no EKS
-    Client->>Gateway: Requisição com Bearer JWT
-    Gateway->>Auth: REQUEST 2.0
-    Auth->>Auth: Validar JWT de usuário
-    Auth-->>Gateway: isAuthorized
-    alt Acesso negado
-        Gateway-->>Client: Requisição bloqueada
-    else Token válido
-        Gateway->>Api: Rota via VPC Link e ALB
-        Api->>Api: Revalidar JWT, perfil, status e propriedade
-        Api-->>Client: Resposta via Gateway
-    end
-```
+![Sequência de autorização JWT](docs/diagrams/jwt-authorization.png)
+
+[Fonte editável do diagrama](docs/diagrams/jwt-authorization.mmd).
 
 O Gateway não mantém cache da decisão do authorizer (`TTL=0`). A Lambda verifica identidade do token; a API decide acesso ao recurso. Token válido de cliente não permite gestão administrativa ou leitura da OS de outra pessoa. O webhook usa HMAC na API, conforme o catálogo explícito de rotas da plataforma.
 

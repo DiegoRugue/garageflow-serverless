@@ -1,0 +1,29 @@
+sequenceDiagram
+    actor Customer as Cliente
+    participant Gateway as API Gateway
+    participant Login as Lambda autenticação
+    participant Secrets as Secrets Manager
+    participant Api as API privada via ALB
+    participant Db as PostgreSQL
+    Customer->>Gateway: POST /auth/customers/token com CPF e senha
+    Gateway->>Login: Evento HTTP API 2.0
+    Login->>Login: Validar e normalizar CPF
+    alt Entrada inválida
+        Login-->>Gateway: 400
+    else Entrada válida
+        Login->>Secrets: Obter chaves por ARN com cache limitado
+        Login->>Api: Verificar credenciais com JWT de serviço
+        Api->>Db: Consultar cliente, status e usuário do portal
+        Api->>Api: Verificar senha e situação
+        alt Cliente válido e ativo
+            Api-->>Login: userId, customerId, role, mustChangePassword
+            Login->>Login: Emitir JWT de usuário
+            Login-->>Gateway: 200 com token e expiração
+        else Credenciais inválidas ou suspensão
+            Api-->>Login: 401 genérico
+            Login-->>Gateway: 401 invalid_credentials
+        else Dependência indisponível
+            Login-->>Gateway: 503 authentication_unavailable
+        end
+    end
+    Gateway-->>Customer: Resposta sem cache
