@@ -33,7 +33,7 @@ jobs:
   deploy:
     name: Deploy ${{ github.ref_name == 'main' && 'production' || 'homologation' }}
     needs: quality-gate
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/develop' && vars.HOMOLOGATION_DEPLOY_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ github.ref_name == 'main' && 'production' || 'homologation' }}

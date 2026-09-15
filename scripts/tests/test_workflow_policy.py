@@ -23,7 +23,7 @@ class DeploymentWorkflowPolicyTests(unittest.TestCase):
         deploy = job_block(document, "deploy")
         protected_expression = "github.ref_name == 'main' && 'production' || 'homologation'"
 
-        self.assertIn("if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'", deploy)
+        self.assertIn("if: github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/develop' && vars.HOMOLOGATION_DEPLOY_ENABLED == 'true')", deploy)
         self.assertIn(f"environment: ${{{{ {protected_expression} }}}}", deploy)
         self.assertNotIn("environment: ${{ inputs.environment", deploy)
         self.assertIn(f"group: serverless-${{{{ {protected_expression} }}}}", document)

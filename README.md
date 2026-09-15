@@ -141,6 +141,19 @@ dotnet publish Host/GarageFlow.Serverless.Host.csproj \
 
 O estado usa a chave `phase3/{environment}/serverless.tfstate`, criptografia e lock nativo do S3. O apply consome exatamente o plano salvo. Após as duas funções ficarem ativas, o script publica primeiro a revisão imutável `contracts/v1/{environment}/serverless/revisions/{sha}/{run-id}-{run-attempt}.json` com `If-None-Match: *` e depois atualiza `contracts/v1/{environment}/serverless.json`. Assim, uma recuperação pode repetir o mesmo commit em outra execução sem colidir com a revisão anterior. Só então os dois callers protegidos chamam o deploy reutilizável do edge da plataforma confiável, sob o mesmo proprietário, com `secrets: inherit`. Essa herança explícita permite resolver os secrets de deployment na chamada entre repositórios. O workflow centralizado usa a fonte `@main`, declara o mesmo Environment protegido selecionado pelo ref do caller e lê as credenciais e variáveis configuradas neste repositório, garantindo que a borda consuma aliases já publicados.
 
+
+### Proteção das branches e homologação
+
+`main` representa produção e `develop` representa homologação. Configure proteção nas duas branches: PR obrigatório, CI aprovada no commit atualizado, conversas resolvidas, sem force push, exclusão ou bypass de administrador. O projeto permite zero aprovações humanas obrigatórias para viabilizar a manutenção individual; isso não dispensa PR nem CI. O check obrigatório deste repositório é **Build, test, and validate**, vinculado ao GitHub Actions.
+
+O deploy de homologação exige a variável **de repositório** `HOMOLOGATION_DEPLOY_ENABLED=true`. Ausente ou `false`, a CI continua executando e os jobs de implantação são ignorados. Essa variável deve estar no repositório porque a condição do job é avaliada antes de carregar o Environment. Produção mantém o deploy automático após a qualidade do mesmo commit.
+
+Para ativar homologação, prepare o Environment `homologation`, restrinja-o à branch `develop`, configure os inputs descritos neste README e credenciais Academy válidas, e habilite a variável. Execute os projetos na ordem plataforma/ingress → banco → aplicação → serverless/edge. Depois de uma validação temporária, desabilite a variável nos quatro repositórios antes da remoção dos recursos. Isso evita recriação por novos pushes; não cancela uma execução já iniciada.
+
+Estados e contratos de homologação usam seus próprios prefixos. Não execute o workflow legado de destruição da Fase 2 para remover a Fase 3. O [procedimento de encerramento de homologação](https://github.com/DiegoRugue/garageflow-infra-kubernetes#encerramento-de-homologação) descreve as dependências e os recursos compartilhados que devem permanecer.
+
+O avaliador `soat-architecture` deve ter acesso de leitura a este repositório. Em repositórios privados, o responsável deve conferir a aceitação do convite antes da entrega; o convite pendente não garante acesso. O README e os artefatos versionados permitem a revisão mesmo quando a sessão temporária da Academy estiver encerrada.
+
 ## Artefatos e decisões
 
 | Artefato | Responsabilidade |
@@ -156,3 +169,5 @@ O estado usa a chave `phase3/{environment}/serverless.tfstate`, criptografia e l
 | [ADR de separação](https://github.com/DiegoRugue/GarageFlow/blob/main/docs/architecture/adrs/0001-four-repositories-on-aws-academy.md) | Propriedade dos quatro projetos |
 
 O pacote usa runtime gerenciada e ZIP; Dockerfile não se aplica a este deploy. As funções não são instrumentadas no New Relic. Os dashboards da plataforma medem a API e o Kubernetes; não representam falhas da Lambda que não chegaram à API. A disponibilidade do endpoint depende da sessão Academy e da cadeia de deploy, não de uma URL fixa no README.
+
+A [coleção Postman da solução](https://github.com/DiegoRugue/GarageFlow/tree/main/docs/postman) reúne o catálogo público e uma jornada guiada de admin e cliente, com captura automática de tokens e identificadores.
