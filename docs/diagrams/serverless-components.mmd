@@ -1,0 +1,10 @@
+flowchart LR
+    Customer[Cliente: CPF e senha] -->|HTTPS| Gateway[API Gateway da plataforma]
+    Gateway -->|rota de login| Auth[Lambda: autenticação]
+    Gateway -->|rotas protegidas| Authorizer[Lambda: authorizer]
+    Auth -->|HTTP privado e JWT de serviço| ALB[ALB interno da plataforma]
+    ALB --> Api[API no EKS]
+    Api --> DB[(PostgreSQL)]
+    Auth -->|endpoint privado| Secrets[Secrets Manager]
+    Authorizer --> Secrets
+    Authorizer -->|permitir ou negar| Gateway

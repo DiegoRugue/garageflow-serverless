@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor Client as Consumidor
+    participant Gateway as API Gateway
+    participant Auth as Lambda authorizer
+    participant Api as API no EKS
+    Client->>Gateway: Requisição com Bearer JWT
+    Gateway->>Auth: REQUEST 2.0
+    Auth->>Auth: Validar JWT de usuário
+    Auth-->>Gateway: isAuthorized
+    alt Acesso negado
+        Gateway-->>Client: Requisição bloqueada
+    else Token válido
+        Gateway->>Api: Rota via VPC Link e ALB
+        Api->>Api: Revalidar JWT, perfil, status e propriedade
+        Api-->>Client: Resposta via Gateway
+    end
